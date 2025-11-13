@@ -1,5 +1,9 @@
 // lib/screens/details_computer.dart
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:glpi_flutter_app/screens/documents_page.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -82,17 +86,11 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
               userName: userName,
             );
             if (!mounted) return;
-            _showSnack(
-              'Inventário Criado',
-              color: Colors.green.shade600,
-            ); // ✅ verde
+            _showSnack('Inventário Criado', color: Colors.green.shade600);
             await _load();
           } catch (e) {
             if (!mounted) return;
-            _showSnack(
-              'Erro: ${e.toString()}',
-              color: Colors.red.shade600,
-            ); // ❌ vermelho
+            _showSnack('Erro: ${e.toString()}', color: Colors.red.shade600);
           }
         },
       ),
@@ -154,21 +152,55 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                 _kvCard(_data!),
 
                 const SizedBox(height: 16),
-                _inventorySection(), // ✅ seção Inventário
+                _inventorySection(), // Card Inventário
 
                 const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: _openInventorySheet,
-                  icon: const Icon(Icons.inventory_2_outlined),
-                  label: const Text('Inventário'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: purple,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+
+                // ===== Botões lado a lado: Inventário | Documentos =====
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _openInventorySheet,
+                        icon: const Icon(Icons.inventory_2_outlined),
+                        label: const Text('Inventário'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: purple,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DocumentsPage(
+                                type: 'Computer',
+                                id: widget.id,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('Documentos'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          side: const BorderSide(color: purple),
+                          foregroundColor: purple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -264,7 +296,6 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
   }
 
   // --------- Seção “Inventário” ---------
-
   Widget _inventorySection() {
     final year = DateTime.now().year.toString();
 
@@ -281,6 +312,7 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
+
             if (_inv == null)
               Text(
                 'Sem inventário para este ano ($year)',
@@ -294,6 +326,84 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _pickAndUploadDocument() async {
+    try {
+      // Escolher arquivo (apenas PDF, se quiser)
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true, // garante bytes mesmo no Android
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return; // usuário cancelou
+      }
+
+      final file = result.files.single;
+      final fileName = file.name;
+      List<int>? bytes = file.bytes;
+
+      // Em alguns casos só vem o path
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      if (bytes == null) {
+        throw Exception('Não foi possível ler o arquivo selecionado.');
+      }
+
+      final session = context.read<AuthProvider>().sessionToken!;
+      _showSnack('Enviando documento...', color: Colors.blueGrey);
+
+      final docId = await _service.uploadAndLinkDocumentToItem(
+        sessionToken: session,
+        type: 'Computer',
+        itemId: widget.id,
+        fileName: fileName,
+        fileBytes: bytes,
+        documentName: fileName,
+      );
+
+      if (!mounted) return;
+
+      _showSnack(
+        'Documento enviado e vinculado (ID $docId)',
+        color: Colors.green.shade600,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Erro ao enviar documento: $e', color: Colors.red.shade600);
+    }
+  }
+
+  void _openFabMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.upload_file),
+                title: const Text('Upload de documento para o GLPI'),
+                subtitle: const Text('Vincular documento a este computador'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickAndUploadDocument();
+                },
+              ),
+              // aqui no futuro dá pra adicionar mais opções no FAB
+            ],
+          ),
+        );
+      },
     );
   }
 }
