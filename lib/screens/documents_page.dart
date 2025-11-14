@@ -13,11 +13,13 @@ import 'pdf_viewer_page.dart';
 class DocumentsPage extends StatefulWidget {
   final String type; // 'Computer' | 'Phone' | 'Printer'
   final int id;
+  final String hostname;
 
   const DocumentsPage({
     super.key,
     required this.type,
     required this.id,
+    required this.hostname,
   });
 
   @override

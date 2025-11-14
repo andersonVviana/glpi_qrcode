@@ -1,7 +1,12 @@
+// lib/screens/details_phone.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/auth_provider.dart';
 import '../services/glpi_service.dart';
+import '../widgets/inventory_action_sheet.dart';
+import 'documents_page.dart';
+import 'problems_page.dart';
 
 class DetailsPhonePage extends StatefulWidget {
   final int id;
@@ -14,6 +19,7 @@ class DetailsPhonePage extends StatefulWidget {
 class _DetailsPhonePageState extends State<DetailsPhonePage> {
   final GLPIService _service = GLPIService();
   Map<String, String>? _data;
+  Map<String, String>? _inv; // inventário do ano atual
   bool _loading = true;
   String? _error;
 
@@ -23,15 +29,36 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _service.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final session = context.read<AuthProvider>().sessionToken!;
-      final map = await _service.getPhoneDetails(sessionToken: session, id: widget.id);
+      final map = await _service.getPhoneDetails(
+        sessionToken: session,
+        id: widget.id,
+      );
+      final inv = await _service.getCurrentYearInventoryInfo(
+        type: 'Phone',
+        id: widget.id,
+        sessionToken: session,
+      );
+      if (!mounted) return;
       setState(() {
         _data = map;
+        _inv = inv; // pode ser null
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -39,45 +66,255 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
     }
   }
 
+  void _showSnack(String msg, {required Color color}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color),
+    );
+  }
+
+  Future<void> _openInventorySheet() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => InventoryActionSheet(
+        onConfirm: (userName) async {
+          try {
+            final session = context.read<AuthProvider>().sessionToken!;
+            await _service.createOrUpdateInventory(
+              type: 'Phone',
+              id: widget.id,
+              sessionToken: session,
+              userName: userName,
+            );
+            if (!mounted) return;
+            _showSnack('Inventário Criado', color: Colors.green.shade600);
+            await _load();
+          } catch (e) {
+            if (!mounted) return;
+            _showSnack('Erro: ${e.toString()}', color: Colors.red.shade600);
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteInventory() async {
+    try {
+      final session = context.read<AuthProvider>().sessionToken!;
+      await _service.deleteCurrentYearInventory(
+        type: 'Phone',
+        id: widget.id,
+        sessionToken: session,
+      );
+      if (!mounted) return;
+      _showSnack(
+        'Inventário do ano atual removido.',
+        color: Colors.green.shade600,
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Erro: ${e.toString()}', color: Colors.red.shade600);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const purple = Color(0xFF522583);
+    final hostname = _data?['Nome'] ?? '(Sem nome)';
+    final modelo = _data?['Modelo'] ?? '';
+    final serial = _data?['Serial']?.trim().isNotEmpty == true
+        ? _data!['Serial']!
+        : (_data?['IMEI'] ?? '');
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalhes - Telefone'),
         backgroundColor: Colors.white,
         foregroundColor: purple,
+        actions: [
+          IconButton(
+            tooltip: 'Excluir inventário (ano atual)',
+            onPressed: _deleteInventory,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Erro: $_error'))
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text('Erro: $_error'),
+                  ),
+                )
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _header(_data?['Nome'] ?? '(Sem nome)'),
+                    _header(hostname),
                     const SizedBox(height: 12),
                     _kvCard(_data!),
+                    const SizedBox(height: 16),
+                    _inventorySection(),
+                    const SizedBox(height: 16),
+
+                    // ===== Botões lado a lado: Inventário | Documentos | Problemas =====
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _openInventorySheet,
+                            icon: const Icon(Icons.inventory_2_outlined),
+                            label: const Text(
+                              'Inventário',
+                              softWrap: false,
+                              overflow: TextOverflow.fade,
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: purple,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size.fromHeight(48),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              final hostname = _data?['Nome'] ?? '(Sem nome)';
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => DocumentsPage(
+                                    type: 'Phone',
+                                    id: widget.id,
+                                    hostname: hostname,
+                                    
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.folder_open),
+                            label: const Text(
+                              'Documentos',
+                              softWrap: false,
+                              overflow: TextOverflow.fade,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              side: const BorderSide(color: purple),
+                              foregroundColor: purple,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProblemsPage(
+                                    type: 'Phone',
+                                    id: widget.id,
+                                    hostname: hostname,
+                                    tipoComputador: modelo,
+                                    serial: serial,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.warning_amber_outlined),
+                            label: const Text(
+                              'Problemas',
+                              softWrap: false,
+                              overflow: TextOverflow.fade,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              side: const BorderSide(color: purple),
+                              foregroundColor: purple,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
     );
   }
 
-  Widget _header(String title) => Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: const Color(0xFF522583).withOpacity(0.1),
-            child: const Icon(Icons.phone_iphone_rounded, color: Color(0xFF522583)),
+  // ---------------- UI Helpers ----------------
+
+  Widget _header(String title) {
+    const purple = Color(0xFF522583);
+    return Row(
+      children: [
+        CircleAvatar(
+          backgroundColor: purple.withOpacity(0.1),
+          child: const Icon(Icons.phone_iphone_rounded, color: purple),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 
   Widget _kvCard(Map<String, String> map) {
-    final entries = map.entries.where((e) => e.value.trim().isNotEmpty).toList();
+    final entries =
+        map.entries.where((e) => e.value.trim().isNotEmpty).toList();
+
+    final order = <String>[
+      'Nome',
+      'Status',
+      'Fabricante',
+      'Modelo',
+      'Serial',
+      'IMEI',
+      'Linha',
+      'Sistema Oper.',
+      'Usuário',
+      'Localização',
+      'Observações',
+      'Criado em',
+      'Atualizado em',
+      'ID',
+      'Tipo',
+    ];
+    entries.sort((a, b) {
+      final ia = order.indexOf(a.key);
+      final ib = order.indexOf(b.key);
+      if (ia == -1 && ib == -1) return a.key.compareTo(b.key);
+      if (ia == -1) return 1;
+      if (ib == -1) return -1;
+      return ia.compareTo(ib);
+    });
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -90,15 +327,58 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
     );
   }
 
-  Widget _kvRow(String k, String v) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
+  Widget _kvRow(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              k,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(v)),
+        ],
+      ),
+    );
+  }
+
+  Widget _inventorySection() {
+    final year = DateTime.now().year.toString();
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(width: 120, child: Text(k, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600))),
-            const SizedBox(width: 8),
-            Expanded(child: Text(v)),
+            const Text(
+              'Inventário',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            if (_inv == null)
+              Text(
+                'Sem inventário para este ano ($year)',
+                style: TextStyle(color: Colors.grey.shade700),
+              )
+            else ...[
+              _kvRow('Nome', _inv!['nome'] ?? '-'),
+              _kvRow('Data e Hora', _inv!['dataHora'] ?? '-'),
+              _kvRow('Ano', _inv!['ano'] ?? year),
+            ],
           ],
         ),
-      );
+      ),
+    );
+  }
 }

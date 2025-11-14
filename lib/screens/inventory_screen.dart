@@ -65,19 +65,27 @@ class _InventoryScreenState extends State<InventoryScreen> {
       final List<InventoryItem> result = [];
 
       if (_current == InvTab.all || _current == InvTab.computers) {
-        result.addAll(await _service.listComputers(sessionToken: sessionToken, search: q));
+        result.addAll(
+          await _service.listComputers(sessionToken: sessionToken, search: q),
+        );
       }
       if (_current == InvTab.all || _current == InvTab.phones) {
-        result.addAll(await _service.listPhones(sessionToken: sessionToken, search: q));
+        result.addAll(
+          await _service.listPhones(sessionToken: sessionToken, search: q),
+        );
       }
       if (_current == InvTab.all || _current == InvTab.printers) {
-        result.addAll(await _service.listPrinters(sessionToken: sessionToken, search: q));
+        result.addAll(
+          await _service.listPrinters(sessionToken: sessionToken, search: q),
+        );
       }
 
       // Ordena por tipo e hostname
       result.sort((a, b) {
         final t = a.type.compareTo(b.type);
-        return t != 0 ? t : a.hostname.toLowerCase().compareTo(b.hostname.toLowerCase());
+        return t != 0
+            ? t
+            : a.hostname.toLowerCase().compareTo(b.hostname.toLowerCase());
       });
 
       if (!mounted) return;
@@ -94,19 +102,27 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   String _fullLabel(InvTab t) {
     switch (t) {
-      case InvTab.all:        return 'Todos';
-      case InvTab.computers:  return 'Computadores';
-      case InvTab.phones:     return 'Telefones';
-      case InvTab.printers:   return 'Impressoras';
+      case InvTab.all:
+        return 'Todos';
+      case InvTab.computers:
+        return 'Computadores';
+      case InvTab.phones:
+        return 'Telefones';
+      case InvTab.printers:
+        return 'Impressoras';
     }
   }
 
   String _shortLabel(InvTab t) {
     switch (t) {
-      case InvTab.all:        return 'Todos';
-      case InvTab.computers:  return 'PCs';
-      case InvTab.phones:     return 'Fones';
-      case InvTab.printers:   return 'Impr.';
+      case InvTab.all:
+        return 'Todos';
+      case InvTab.computers:
+        return 'PCs';
+      case InvTab.phones:
+        return 'Fones';
+      case InvTab.printers:
+        return 'Impr.';
     }
   }
 
@@ -132,9 +148,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
               decoration: BoxDecoration(
                 color: selected ? purple : Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: selected ? purple : Colors.grey.shade400),
+                border: Border.all(
+                  color: selected ? purple : Colors.grey.shade400,
+                ),
                 boxShadow: selected
-                    ? const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))]
+                    ? const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 6,
+                          offset: Offset(0, 2),
+                        ),
+                      ]
                     : null,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -142,7 +166,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (selected) const Icon(Icons.check, size: 16, color: Colors.white),
+                  if (selected)
+                    const Icon(Icons.check, size: 16, color: Colors.white),
                   if (selected) const SizedBox(width: 6),
                   Flexible(
                     child: Text(
@@ -208,7 +233,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
               prefixIcon: const Icon(Icons.search),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 12,
+                horizontal: 12,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: Colors.grey.shade300),
@@ -227,17 +255,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text('Erro: $_error'),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      itemCount: _items.length,
-                      itemBuilder: (context, i) => _InventoryCard(item: _items[i]),
-                    ),
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text('Erro: $_error'),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  itemCount: _items.length,
+                  itemBuilder: (context, i) => _InventoryCard(item: _items[i]),
+                ),
         ),
       ],
     );
@@ -267,41 +295,57 @@ class _InventoryCard extends StatelessWidget {
   String _statusName(String? value) {
     if (value == null || value.isEmpty) return '-';
     switch (value) {
-      case '1': return 'Ativo';
-      case '2': return 'Em estoque';
-      case '3': return 'Em uso';
-      case '4': return 'Assistência Técnica';
-      case '6': return 'Descarte';
-      case '7': return 'Backup';
-      default:  return 'Desconhecido';
+      case '1':
+        return 'Ativo';
+      case '2':
+        return 'Assistência Técnica';
+      case '4':
+        return 'Disponível';
+      case '5':
+        return 'Em Análise';
+      case '8':
+        return 'Descarte';
+      default:
+        return 'Desconhecido';
     }
   }
 
   Color _statusColor(String? value) {
     switch (value) {
-      case '1': return Colors.green.shade600;   // Ativo
-      case '4': return Colors.orange.shade700;  // Assistência Técnica
-      case '6': return Colors.red.shade600;     // Descarte
-      default:  return Colors.grey.shade500;    // Outros
+      case '1':
+        return Colors.green.shade600; // Ativo
+      case '2':
+        return Colors.orange.shade600; // Ativo
+      case '4':
+        return Colors.purple.shade700; // Assistência Técnica
+      case '5':
+        return Colors.blue.shade700;
+      case '8':
+        return Colors.red.shade600; // Descarte
+      default:
+        return Colors.grey.shade500; // Outros
     }
   }
 
   void _openDetails(BuildContext context) {
     switch (item.type) {
       case 'Computer':
-        Navigator.push(context, MaterialPageRoute(
-          builder: (_) => DetailsComputerPage(id: item.id),
-        ));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DetailsComputerPage(id: item.id)),
+        );
         break;
       case 'Phone':
-        Navigator.push(context, MaterialPageRoute(
-          builder: (_) => DetailsPhonePage(id: item.id),
-        ));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DetailsPhonePage(id: item.id)),
+        );
         break;
       case 'Printer':
-        Navigator.push(context, MaterialPageRoute(
-          builder: (_) => DetailsPrinterPage(id: item.id),
-        ));
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DetailsPrinterPage(id: item.id)),
+        );
         break;
       default:
         break;
@@ -338,12 +382,18 @@ class _InventoryCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       item.hostname.isEmpty ? '(Sem hostname)' : item.hostname,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: statusColor.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),

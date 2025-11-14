@@ -1068,6 +1068,375 @@ class GLPIService {
     return json.decode(resp.body) as Map<String, dynamic>;
   }
 
+  // ====== PROBLEMAS / ASSISTÊNCIA TÉCNICA ======
+
+  Future<List<dynamic>> _listProblemLinks({
+    required String type, // 'Computer', 'Phone', ...
+    required int id,
+    required String sessionToken,
+  }) async {
+    final allRows = await _getAll('/Item_Problem', sessionToken);
+    final filtered = allRows.whereType<Map<String, dynamic>>().where((row) {
+      final itemType = (row['itemtype'] ?? '').toString();
+      final itemsId = _asInt(row['items_id']);
+      return itemType == type && itemsId == id;
+    }).toList();
+
+    print(
+      '🔗 Item_Problem total=${allRows.length} filtrados=${filtered.length}',
+    );
+    return filtered;
+  }
+
+  Future<Map<String, dynamic>> _getProblemRaw({
+    required int id,
+    required String sessionToken,
+  }) async {
+    final uri = Uri.parse('$baseUrl/Problem/$id');
+    final resp = await _client.get(uri, headers: _authHeaders(sessionToken));
+    if (resp.statusCode != 200) {
+      throw Exception('Falha ao buscar Problem($id): ${resp.statusCode}');
+    }
+    return json.decode(resp.body) as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> listProblemsForItem({
+    required String type, // 'Computer' | 'Phone' | 'Printer'
+    required int id,
+    required String sessionToken,
+  }) async {
+    final links = await _listProblemLinks(
+      type: type,
+      id: id,
+      sessionToken: sessionToken,
+    );
+
+    final ids = <int>{};
+    for (final l in links) {
+      final pid = _asInt(l['problems_id'] ?? l['problem_id']);
+      if (pid != null) ids.add(pid);
+    }
+
+    final problems = <Map<String, dynamic>>[];
+    for (final pid in ids) {
+      final raw = await _getProblemRaw(id: pid, sessionToken: sessionToken);
+      problems.add(raw);
+    }
+
+    // Ordena por data de modificação desc
+    problems.sort((a, b) {
+      final aDate = (a['date_mod'] ?? a['date_creation'] ?? '') as String;
+      final bDate = (b['date_mod'] ?? b['date_creation'] ?? '') as String;
+      return bDate.compareTo(aDate);
+    });
+
+    return problems;
+  }
+
+  Future<void> _linkProblemToItem({
+    required String sessionToken,
+    required String itemtype,
+    required int itemsId,
+    required int problemsId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/Item_Problem');
+    final body = json.encode({
+      'input': {
+        'itemtype': itemtype,
+        'items_id': itemsId,
+        'problems_id': problemsId,
+      },
+    });
+
+    final resp = await _client.post(
+      uri,
+      headers: _authHeaders(sessionToken),
+      body: body,
+    );
+
+    print('↩️ Item_Problem status=${resp.statusCode} body=${resp.body}');
+    if (resp.statusCode != 201 && resp.statusCode != 200) {
+      throw Exception(
+        'Falha ao vincular Problem ao item (status ${resp.statusCode}): ${resp.body}',
+      );
+    }
+  }
+
+  Future<int> createAssistenciaTecnicaProblemForItem({
+    required String sessionToken,
+    required String itemtype, // 'Computer'
+    required int itemsId,
+    required String titulo, // título montado na tela
+    required String conteudo, // corpo com checklist
+    required int tecnicoUserId, // 👈 NOVO: técnico selecionado
+  }) async {
+    final uri = Uri.parse('$baseUrl/Problem');
+    final body = json.encode({
+      'input': {
+        'name': titulo,
+        'content': conteudo,
+        'status': 1, // Novo
+        'users_id_recipient': tecnicoUserId, // Requerente
+        'users_id_assign': tecnicoUserId, // Atribuído
+      },
+    });
+
+    final resp = await _client.post(
+      uri,
+      headers: _authHeaders(sessionToken),
+      body: body,
+    );
+
+    print('↩️ Problem create status=${resp.statusCode} body=${resp.body}');
+
+    if (resp.statusCode != 201 && resp.statusCode != 200) {
+      throw Exception(
+        'Falha ao criar Problem (status ${resp.statusCode}): ${resp.body}',
+      );
+    }
+
+    final data = json.decode(resp.body) as Map<String, dynamic>;
+    final problemId = _asInt(data['id']);
+    if (problemId == null || problemId <= 0) {
+      throw Exception(
+        'Problem criado mas id não retornado corretamente: $data',
+      );
+    }
+
+    // Vincula ao item
+    await _linkProblemToItem(
+      sessionToken: sessionToken,
+      itemtype: itemtype,
+      itemsId: itemsId,
+      problemsId: problemId,
+    );
+
+    return problemId;
+  }
+
+  Future<int?> getGroupIdByName({
+    required String sessionToken,
+    required String groupName,
+  }) async {
+    final groups = await _getAll('/Group', sessionToken);
+
+    for (final g in groups.whereType<Map<String, dynamic>>()) {
+      final name = (g['name'] ?? '').toString().trim();
+
+      if (name.toLowerCase() == groupName.toLowerCase()) {
+        return g['id'] is int ? g['id'] : int.tryParse('${g['id']}');
+      }
+    }
+
+    return null;
+  }
+
+  // Lista usuários do GLPI com categoria "TI"
+  Future<List<Map<String, dynamic>>> listTechniciansFromGroupTI({
+    required String sessionToken,
+  }) async {
+    // Busca todos os usuários (ajuste pageSize/maxPages se tiver muito usuário)
+    final allUsers = await _getAll(
+      '/User',
+      sessionToken,
+      pageSize: 200,
+      maxPages: 20,
+    );
+
+    final techs = <Map<String, dynamic>>[];
+
+    for (final raw in allUsers) {
+      if (raw is! Map<String, dynamic>) continue;
+
+      final id = _asInt(raw['id']) ?? 0;
+      if (id == 0) continue;
+
+      // Aqui estou assumindo que o campo "category" (ou "category_name")
+      // identifica o usuário como TI. Ajuste se o seu GLPI usar outro campo.
+      final category = (raw['category'] ?? raw['category_name'] ?? '')
+          .toString()
+          .toUpperCase();
+
+      if (category == 'TI') {
+        techs.add({
+          'id': id,
+          'realname': raw['realname'] ?? '',
+          'firstname': raw['firstname'] ?? '',
+        });
+      }
+    }
+
+    // Ordena por nome
+    techs.sort((a, b) {
+      final na = ('${a['realname']} ${a['firstname']}').trim().toLowerCase();
+      final nb = ('${b['realname']} ${b['firstname']}').trim().toLowerCase();
+      return na.compareTo(nb);
+    });
+
+    return techs;
+  }
+
+  Future<List<Map<String, dynamic>>> listUsersFromGroupTI({
+    required String sessionToken,
+  }) async {
+    // 1) Buscar ID do grupo TI
+    final groupId = await getGroupIdByName(
+      sessionToken: sessionToken,
+      groupName: 'TI',
+    );
+
+    if (groupId == null) {
+      print('⚠️ Grupo "TI" não encontrado no GLPI');
+      return [];
+    }
+
+    // 2) Buscar usuários ligados ao grupo
+    final groupUsers = await _getAll('/Group_User', sessionToken);
+
+    final userIds = <int>{};
+
+    for (final row in groupUsers.whereType<Map<String, dynamic>>()) {
+      final gId = (row['groups_id'] ?? '').toString();
+      if (gId == '$groupId') {
+        final uId = row['users_id'];
+        if (uId != null) {
+          userIds.add(uId is int ? uId : int.tryParse('$uId') ?? 0);
+        }
+      }
+    }
+
+    if (userIds.isEmpty) {
+      print('⚠️ Nenhum usuário encontrado no grupo TI');
+      return [];
+    }
+
+    // 3) Buscar dados dos usuários
+    final allUsers = await _getAll('/User', sessionToken);
+
+    final filtered = allUsers.whereType<Map<String, dynamic>>().where((u) {
+      final id = u['id'] is int ? u['id'] : int.tryParse('${u['id']}') ?? 0;
+      return userIds.contains(id);
+    }).toList();
+
+    // Ordena pelo nome
+    filtered.sort((a, b) {
+      final aName = ((a['realname'] ?? '') + ' ' + (a['firstname'] ?? ''))
+          .trim();
+      final bName = ((b['realname'] ?? '') + ' ' + (b['firstname'] ?? ''))
+          .trim();
+      return aName.toLowerCase().compareTo(bName.toLowerCase());
+    });
+
+    print('👥 Técnicos TI encontrados: ${filtered.length}');
+    return filtered;
+  }
+
+  Future<void> addProblemComplement({
+    required String sessionToken,
+    required int problemId,
+    required String complementText,
+  }) async {
+    final uri = Uri.parse('$baseUrl/Problem/$problemId');
+
+    // Busca conteúdo atual
+    final getResp = await _client.get(uri, headers: _authHeaders(sessionToken));
+    if (getResp.statusCode != 200) {
+      throw Exception(
+        'Falha ao buscar Problem($problemId) para complemento: ${getResp.statusCode}',
+      );
+    }
+    final raw = json.decode(getResp.body) as Map<String, dynamic>;
+    final oldContent = (raw['content'] ?? '').toString();
+
+    final now = DateTime.now();
+    final complementBlock =
+        '''
+
+-----------------------------
+Complemento em ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:
+$complementText
+'''
+            .trimRight();
+
+    final newContent = oldContent.trimRight().isEmpty
+        ? complementBlock
+        : '$oldContent\n\n$complementBlock';
+
+    final body = json.encode({
+      'input': {'id': problemId, 'content': newContent},
+    });
+
+    var resp = await _client.put(
+      uri,
+      headers: _authHeaders(sessionToken),
+      body: body,
+    );
+
+    if (resp.statusCode == 400 || resp.statusCode == 405) {
+      resp = await _client.patch(
+        uri,
+        headers: _authHeaders(sessionToken),
+        body: body,
+      );
+    }
+
+    print(
+      '↩️ addProblemComplement status=${resp.statusCode} body=${resp.body}',
+    );
+
+    if (resp.statusCode != 200) {
+      throw Exception(
+        'Falha ao adicionar complemento ao Problem (status ${resp.statusCode}): ${resp.body}',
+      );
+    }
+  }
+
+  // Lista usuários ativos (para usar como técnicos no combo)
+  Future<List<Map<String, dynamic>>> listActiveUsers({
+    required String sessionToken,
+  }) async {
+    final all = await _getAll('/User', sessionToken);
+
+    final users = all.whereType<Map<String, dynamic>>().where((u) {
+      final isActive = (u['is_active'] ?? 1).toString() == '1';
+      final isDeleted = (u['is_deleted'] ?? 0).toString() == '0';
+      return isActive && !isDeleted;
+    }).toList();
+
+    // Ordenar pelo nome
+    users.sort((a, b) {
+      final aName = ((a['realname'] ?? '') + ' ' + (a['firstname'] ?? ''))
+          .trim();
+      final bName = ((b['realname'] ?? '') + ' ' + (b['firstname'] ?? ''))
+          .trim();
+      return aName.toLowerCase().compareTo(bName.toLowerCase());
+    });
+
+    return users;
+  }
+
+  Future<void> deleteProblemPermanently({
+    required int problemId,
+    required String sessionToken,
+  }) async {
+    // DELETE /Problem/:id?force_purge=1&history=false
+    final uri = Uri.parse(
+      '$baseUrl/Problem/$problemId?force_purge=1&history=false',
+    );
+
+    final resp = await _client.delete(uri, headers: _authHeaders(sessionToken));
+
+    // GLPI pode retornar 200 ou 204 na deleção
+    if (resp.statusCode != 200 && resp.statusCode != 204) {
+      throw Exception(
+        'Falha ao excluir permanentemente Problem($problemId): '
+        '${resp.statusCode} ${resp.body}',
+      );
+    }
+
+    print('🗑️ Problem $problemId excluído permanentemente (force_purge=1)');
+  }
+
   void dispose() {
     _client.close();
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:glpi_flutter_app/screens/documents_page.dart';
+import 'package:glpi_flutter_app/screens/problems_page.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
@@ -168,6 +169,7 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                           backgroundColor: purple,
                           foregroundColor: Colors.white,
                           minimumSize: const Size.fromHeight(48),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -178,20 +180,59 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () {
+                          final hostname = _data?['Hostname'] ?? _data?['Nome'] ?? '(Sem nome)';
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => DocumentsPage(
                                 type: 'Computer',
                                 id: widget.id,
+                                hostname: hostname,
                               ),
                             ),
                           );
                         },
                         icon: const Icon(Icons.folder_open),
-                        label: const Text('Documentos'),
+                        label: const Text(
+                          'Documentos',
+                          softWrap: false,
+                          overflow: TextOverflow.fade,
+                        ),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          side: const BorderSide(color: purple),
+                          foregroundColor: purple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProblemsPage(
+                                type: 'Computer',
+                                id: widget.id,
+                                hostname:
+                                    _data?['Hostname'] ?? _data?['Nome'] ?? '',
+                                tipoComputador: _data?['Modelo'] ?? '',
+                                serial: _data?['Serial'] ?? '',
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.report_problem_outlined),
+                        label: const Text('Problemas'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           side: const BorderSide(color: purple),
                           foregroundColor: purple,
                           shape: RoundedRectangleBorder(
