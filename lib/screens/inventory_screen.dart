@@ -1,4 +1,3 @@
-// lib/screens/inventory_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +29,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
   bool _loading = false;
   String? _error;
 
+  // 👇 Novo: mapa de "tem inventário" por item (chave: type-id)
+  Map<String, bool> _hasInventory = {};
+
   Timer? _debounce;
 
   @override
@@ -50,6 +52,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () => _load());
   }
+
+  String _itemKey(InventoryItem it) => '${it.type}-${it.id}';
 
   Future<void> _load() async {
     final sessionToken = context.read<AuthProvider>().sessionToken;
@@ -88,8 +92,27 @@ class _InventoryScreenState extends State<InventoryScreen> {
             : a.hostname.toLowerCase().compareTo(b.hostname.toLowerCase());
       });
 
+      // 👇 Novo: checar inventário atual para cada item
+      final futures = <Future<MapEntry<String, bool>>>[];
+      for (final it in result) {
+        futures.add(() async {
+          final info = await _service.getCurrentYearInventoryInfo(
+            type: it.type,
+            id: it.id,
+            sessionToken: sessionToken,
+          );
+          return MapEntry(_itemKey(it), info != null);
+        }());
+      }
+
+      final entries = await Future.wait(futures);
+      final invMap = <String, bool>{for (final e in entries) e.key: e.value};
+
       if (!mounted) return;
-      setState(() => _items = result);
+      setState(() {
+        _items = result;
+        _hasInventory = invMap;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -264,7 +287,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                   itemCount: _items.length,
-                  itemBuilder: (context, i) => _InventoryCard(item: _items[i]),
+                  itemBuilder: (context, i) {
+                    final it = _items[i];
+                    final hasInv = _hasInventory[_itemKey(it)] ?? false;
+                    return _InventoryCard(item: it, hasInventory: hasInv);
+                  },
                 ),
         ),
       ],
@@ -276,7 +303,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
 class _InventoryCard extends StatelessWidget {
   final InventoryItem item;
-  const _InventoryCard({required this.item});
+  final bool hasInventory;
+
+  const _InventoryCard({required this.item, required this.hasInventory});
 
   IconData _icon() {
     switch (item.type) {
@@ -315,11 +344,11 @@ class _InventoryCard extends StatelessWidget {
       case '1':
         return Colors.green.shade600; // Ativo
       case '2':
-        return Colors.orange.shade600; // Ativo
+        return Colors.orange.shade600; // Assistência Técnica
       case '4':
-        return Colors.purple.shade700; // Assistência Técnica
+        return Colors.purple.shade700; // Disponível
       case '5':
-        return Colors.blue.shade700;
+        return Colors.blue.shade700; // Em análise
       case '8':
         return Colors.red.shade600; // Descarte
       default:
@@ -371,7 +400,7 @@ class _InventoryCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header (ícone + hostname + status)
+              // Header (ícone + hostname + inventário + status)
               Row(
                 children: [
                   CircleAvatar(
@@ -380,12 +409,29 @@ class _InventoryCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      item.hostname.isEmpty ? '(Sem hostname)' : item.hostname,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.hostname.isEmpty
+                                ? '(Sem hostname)'
+                                : item.hostname,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (hasInventory) ...[
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            color: Colors.green,
+                            size: 20,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),

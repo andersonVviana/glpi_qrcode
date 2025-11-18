@@ -402,7 +402,6 @@ class GLPIService {
       'UUID': '${raw['uuid'] ?? ''}',
       'Sistema Oper.': osText, // 👈 agora sempre tentamos preencher
       'Domínio': '${raw['domain'] ?? ''}',
-      'Observações': '${raw['comment'] ?? ''}',
       'Criado em': '${raw['date_creation'] ?? ''}',
       'Atualizado em': '${raw['date_mod'] ?? ''}',
     };
@@ -439,7 +438,6 @@ class GLPIService {
       'Sistema Oper.': osText, // 👈 idem
       'Usuário': await _getUserName(uId, sessionToken),
       'Localização': await _getLocationName(lId, sessionToken),
-      'Observações': '${raw['comment'] ?? ''}',
       'Criado em': '${raw['date_creation'] ?? ''}',
       'Atualizado em': '${raw['date_mod'] ?? ''}',
     };
@@ -472,7 +470,6 @@ class GLPIService {
       'End. IP': '${raw['ip'] ?? ''}',
       'Usuário': await _getUserName(uId, sessionToken),
       'Localização': await _getLocationName(lId, sessionToken),
-      'Observações': '${raw['comment'] ?? ''}',
       'Criado em': '${raw['date_creation'] ?? ''}',
       'Atualizado em': '${raw['date_mod'] ?? ''}',
     };
@@ -672,7 +669,10 @@ class GLPIService {
     final block = m.group(1)!;
 
     String _extract(String key) {
-      final r = RegExp('^$key:\\s*(.*)\$', multiLine: true);
+      final r = RegExp(
+        r'^\s*' + RegExp.escape(key) + r':\s*(.*)$',
+        multiLine: true,
+      );
       final mm = r.firstMatch(block);
       return (mm?.group(1) ?? '').trim();
     }

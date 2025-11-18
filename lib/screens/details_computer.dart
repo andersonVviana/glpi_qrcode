@@ -69,6 +69,8 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
   }
 
   Future<void> _openInventorySheet() async {
+    final session = context.read<AuthProvider>().sessionToken!;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -77,21 +79,31 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => InventoryActionSheet(
+        sessionToken: session, // 👈 AGORA OBRIGATÓRIO
         onConfirm: (userName) async {
           try {
-            final session = context.read<AuthProvider>().sessionToken!;
             await _service.createOrUpdateInventory(
               type: 'Computer',
               id: widget.id,
               sessionToken: session,
-              userName: userName,
+              userName: userName, // 👈 vai gravar o nome no GLPI
             );
             if (!mounted) return;
-            _showSnack('Inventário Criado', color: Colors.green.shade600);
-            await _load();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Inventário Criado'),
+                backgroundColor: Colors.green.shade600,
+              ),
+            );
+            await _load(); // recarrega para mostrar Nome / DataHora
           } catch (e) {
             if (!mounted) return;
-            _showSnack('Erro: ${e.toString()}', color: Colors.red.shade600);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erro: $e'),
+                backgroundColor: Colors.red.shade600,
+              ),
+            );
           }
         },
       ),
@@ -158,29 +170,16 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                 const SizedBox(height: 16),
 
                 // ===== Botões lado a lado: Inventário | Documentos =====
+                // ===== Botões lado a lado: Documentos | Problemas =====
                 Row(
                   children: [
                     Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _openInventorySheet,
-                        icon: const Icon(Icons.inventory_2_outlined),
-                        label: const Text('Inventário'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: purple,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(48),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          final hostname = _data?['Hostname'] ?? _data?['Nome'] ?? '(Sem nome)';
+                          final hostname =
+                              _data?['Hostname'] ??
+                              _data?['Nome'] ??
+                              '(Sem nome)';
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -209,7 +208,6 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                         ),
                       ),
                     ),
-
                     const SizedBox(width: 12),
                     Expanded(
                       child: OutlinedButton.icon(
@@ -229,7 +227,11 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
                           );
                         },
                         icon: const Icon(Icons.report_problem_outlined),
-                        label: const Text('Problemas'),
+                        label: const Text(
+                          'Problemas',
+                          softWrap: false,
+                          overflow: TextOverflow.fade,
+                        ),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -338,6 +340,7 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
 
   // --------- Seção “Inventário” ---------
   Widget _inventorySection() {
+    const purple = Color(0xFF522583);
     final year = DateTime.now().year.toString();
 
     return Card(
@@ -364,6 +367,37 @@ class _DetailsComputerPageState extends State<DetailsComputerPage> {
               _kvRow('Data e Hora', _inv!['dataHora'] ?? '-'),
               _kvRow('Ano', _inv!['ano'] ?? year),
             ],
+
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _openInventorySheet,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: purple,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.inventory_2_rounded),
+                    label: Text(
+                      _inv == null
+                          ? 'Registrar inventário'
+                          : 'Atualizar inventário',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _deleteInventory,
+                  icon: const Icon(
+                    Icons.delete_forever_rounded,
+                    color: Colors.red,
+                  ),
+                  tooltip: 'Excluir inventário do ano atual',
+                ),
+              ],
+            ),
           ],
         ),
       ),

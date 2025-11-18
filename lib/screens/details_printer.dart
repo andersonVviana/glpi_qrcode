@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../services/glpi_service.dart';
+import '../widgets/inventory_action_sheet.dart';
 import 'documents_page.dart';
 import 'problems_page.dart';
 
@@ -80,89 +81,78 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
     }
   }
 
+  /// Abre o bottom sheet para escolher o usuário e registrar/atualizar inventário
   Future<void> _handleInventory() async {
-    if (_data == null) return;
-    setState(() => _busyInventory = true);
-    try {
-      final session = context.read<AuthProvider>().sessionToken!;
-      // Aqui você pode usar o usuário logado como "Nome" do inventário
-      final fullSession = await _service.getFullSession(
+    final session = context.read<AuthProvider>().sessionToken!;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => InventoryActionSheet(
         sessionToken: session,
-      );
-      final nomeUsuario = (fullSession['glpi_current_user']?['name'] ??
-              fullSession['glpi_current_user']?['realname'] ??
-              'Usuário')
-          .toString();
+        onConfirm: (userName) async {
+          setState(() => _busyInventory = true);
+          try {
+            await _service.createOrUpdateInventory(
+              type: 'Printer',
+              id: widget.id,
+              sessionToken: session,
+              userName: userName,
+            );
 
-      final status = await _service.createOrUpdateInventory(
-        type: 'Printer',
-        id: widget.id,
-        sessionToken: session,
-        userName: nomeUsuario,
-      );
+            if (!mounted) return;
 
-      // Recarrega info do inventário
-      final inv = await _service.getCurrentYearInventoryInfo(
-        type: 'Printer',
-        id: widget.id,
-        sessionToken: session,
-      );
+            _showSnack(
+              'Inventário criado/atualizado com sucesso.',
+              color: Colors.green.shade600,
+            );
 
-      if (!mounted) return;
-      setState(() {
-        _inv = inv;
-      });
-
-      _showSnack(
-        'Inventário registrado: $status',
-        color: Colors.green.shade600,
-      );
-    } catch (e) {
-      _showSnack('Erro ao registrar inventário: $e',
-          color: Colors.red.shade600);
-    } finally {
-      if (mounted) setState(() => _busyInventory = false);
-    }
+            await _load(); // recarrega Nome / DataHora / Ano
+          } catch (e) {
+            if (!mounted) return;
+            _showSnack(
+              'Erro ao registrar inventário: $e',
+              color: Colors.red.shade600,
+            );
+          } finally {
+            if (mounted) setState(() => _busyInventory = false);
+          }
+        },
+      ),
+    );
   }
 
   Future<void> _deleteInventory() async {
     setState(() => _busyInventory = true);
     try {
-      final session = context.read<AuthProvider>().sessionToken!;
-      // Garante que ainda existe inventário para o ano atual
-      final inv = await _service.getCurrentYearInventoryInfo(
-        type: 'Printer',
-        id: widget.id,
-        sessionToken: session,
-      );
-
-      if (inv == null) {
+      // Verifica se há inventário carregado
+      if (_inv == null) {
         if (!mounted) return;
         await showDialog<void>(
           context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Inventário'),
-            content: const Text(
+          builder: (_) => const AlertDialog(
+            title: Text('Inventário'),
+            content: Text(
               'Não há inventário para o ano atual para excluir.',
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
           ),
         );
         return;
       }
 
-      // Confirmação opcional
+      final ano = _inv?['ano'] ?? DateTime.now().year.toString();
+
+      // Confirmação do usuário
       final confirm = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Excluir inventário'),
           content: Text(
-            'Tem certeza que deseja excluir o inventário do ano ${inv['ano'] ?? ''}?',
+            'Tem certeza que deseja excluir o inventário do ano $ano?',
           ),
           actions: [
             TextButton(
@@ -180,10 +170,9 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
         ),
       );
 
-      if (confirm != true) {
-        return;
-      }
+      if (confirm != true) return;
 
+      final session = context.read<AuthProvider>().sessionToken!;
       await _service.deleteCurrentYearInventory(
         type: 'Printer',
         id: widget.id,
@@ -243,16 +232,21 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   Widget _header(String title) => Row(
         children: [
           CircleAvatar(
-            backgroundColor: const Color(0xFF522583).withOpacity(0.1),
-            child:
-                const Icon(Icons.print_rounded, color: Color(0xFF522583)),
+            backgroundColor:
+                const Color(0xFF522583).withOpacity(0.1),
+            child: const Icon(
+              Icons.print_rounded,
+              color: Color(0xFF522583),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style:
-                  const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -262,6 +256,31 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   Widget _kvCard(Map<String, String> map) {
     final entries =
         map.entries.where((e) => e.value.trim().isNotEmpty).toList();
+
+    final order = <String>[
+      'Nome',
+      'Status',
+      'Fabricante',
+      'Modelo',
+      'Serial',
+      'End. IP',
+      'Usuário',
+      'Localização',
+      'Criado em',
+      'Atualizado em',
+      'ID',
+      'Tipo',
+    ];
+
+    entries.sort((a, b) {
+      final ia = order.indexOf(a.key);
+      final ib = order.indexOf(b.key);
+      if (ia == -1 && ib == -1) return a.key.compareTo(b.key);
+      if (ia == -1) return 1;
+      if (ib == -1) return -1;
+      return ia.compareTo(ib);
+    });
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -297,32 +316,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
 
   Widget _inventorySection() {
     const purple = Color(0xFF522583);
-
-    final invText = () {
-      if (_inv == null) {
-        return const Text(
-          'Nenhum inventário para o ano atual.',
-          style: TextStyle(color: Colors.black54),
-        );
-      }
-      final nome = _inv!['nome'] ?? '';
-      final dataHora = _inv!['dataHora'] ?? '';
-      final ano = _inv!['ano'] ?? '';
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Inventário $ano',
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text('Nome: $nome'),
-          Text('Data/Hora: $dataHora'),
-        ],
-      );
-    }();
+    final year = DateTime.now().year.toString();
 
     return Card(
       elevation: 2,
@@ -333,14 +327,23 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Inventário (Ano atual)',
+              'Inventário',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
-            invText,
+            const SizedBox(height: 10),
+            if (_inv == null)
+              Text(
+                'Sem inventário para este ano ($year)',
+                style: TextStyle(color: Colors.grey.shade700),
+              )
+            else ...[
+              _kvRow('Nome', _inv!['nome'] ?? '-'),
+              _kvRow('Data e Hora', _inv!['dataHora'] ?? '-'),
+              _kvRow('Ano', _inv!['ano'] ?? year),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -352,14 +355,17 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
                       foregroundColor: Colors.white,
                     ),
                     icon: const Icon(Icons.inventory_2_rounded),
-                    label: Text(_inv == null
-                        ? 'Registrar inventário'
-                        : 'Atualizar inventário'),
+                    label: Text(
+                      _inv == null
+                          ? 'Registrar inventário'
+                          : 'Atualizar inventário',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  onPressed: _busyInventory ? null : _deleteInventory,
+                  onPressed:
+                      _busyInventory || _inv == null ? null : _deleteInventory,
                   icon: const Icon(
                     Icons.delete_forever_rounded,
                     color: Colors.red,
@@ -398,6 +404,10 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
             },
             icon: const Icon(Icons.description_outlined),
             label: const Text('Documentos'),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: purple),
+              foregroundColor: purple,
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -419,6 +429,10 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
             },
             icon: const Icon(Icons.report_problem_outlined),
             label: const Text('Problemas'),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: purple),
+              foregroundColor: purple,
+            ),
           ),
         ),
       ],
