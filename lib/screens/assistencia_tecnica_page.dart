@@ -1049,7 +1049,7 @@ $conteudoBase
                     _loadingTechs
                         ? const LinearProgressIndicator()
                         : DropdownButtonFormField<int>(
-                            value: _selectedTechId,
+                            initialValue: _selectedTechId,
                             decoration: const InputDecoration(
                               labelText: 'Selecione o técnico',
                               border: OutlineInputBorder(),

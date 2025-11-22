@@ -290,7 +290,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   itemBuilder: (context, i) {
                     final it = _items[i];
                     final hasInv = _hasInventory[_itemKey(it)] ?? false;
-                    return _InventoryCard(item: it, hasInventory: hasInv);
+                    return _InventoryCard(
+                      item: it,
+                      hasInventory: hasInv,
+                      onNeedReload:
+                          _load, // 👈 recarrega ao voltar dos detalhes
+                    );
                   },
                 ),
         ),
@@ -304,8 +309,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
 class _InventoryCard extends StatelessWidget {
   final InventoryItem item;
   final bool hasInventory;
+  final VoidCallback onNeedReload;
 
-  const _InventoryCard({required this.item, required this.hasInventory});
+  const _InventoryCard({
+    required this.item,
+    required this.hasInventory,
+    required this.onNeedReload,
+  });
 
   IconData _icon() {
     switch (item.type) {
@@ -356,28 +366,35 @@ class _InventoryCard extends StatelessWidget {
     }
   }
 
-  void _openDetails(BuildContext context) {
+  void _openDetails(BuildContext context) async {
+    dynamic result;
+
     switch (item.type) {
       case 'Computer':
-        Navigator.push(
+        result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => DetailsComputerPage(id: item.id)),
         );
         break;
       case 'Phone':
-        Navigator.push(
+        result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => DetailsPhonePage(id: item.id)),
         );
         break;
       case 'Printer':
-        Navigator.push(
+        result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => DetailsPrinterPage(id: item.id)),
         );
         break;
       default:
-        break;
+        return;
+    }
+
+    // Se a tela de detalhes retornar "true", recarrega a lista
+    if (result == true) {
+      onNeedReload();
     }
   }
 

@@ -568,9 +568,7 @@ class GLPIService {
   String _upsertYearBlock(
     String comment,
     int year,
-    String newBlock, {
-    bool updateOnlyThisYear = true,
-  }) {
+    String newBlock) {
     final specific = RegExp(
       r'\[INVENTARIO-' +
           year.toString() +
@@ -668,7 +666,7 @@ class GLPIService {
 
     final block = m.group(1)!;
 
-    String _extract(String key) {
+    String extract(String key) {
       final r = RegExp(
         r'^\s*' + RegExp.escape(key) + r':\s*(.*)$',
         multiLine: true,
@@ -677,8 +675,8 @@ class GLPIService {
       return (mm?.group(1) ?? '').trim();
     }
 
-    final nome = _extract('Nome');
-    final dataHora = _extract('Data/Hora');
+    final nome = extract('Nome');
+    final dataHora = extract('Data/Hora');
 
     return {'nome': nome, 'dataHora': dataHora, 'ano': '$year'};
   }

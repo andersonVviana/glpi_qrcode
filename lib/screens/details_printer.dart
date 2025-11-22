@@ -1,4 +1,3 @@
-// lib/screens/details_printer.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -21,12 +20,11 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   final GLPIService _service = GLPIService();
 
   Map<String, String>? _data;
+  Map<String, String>? _inv; // {nome, dataHora, ano}
   bool _loading = true;
   String? _error;
 
-  // Inventário (ano atual)
-  Map<String, String>? _inv; // {nome, dataHora, ano}
-  bool _busyInventory = false;
+  bool _changed = false; // 👈 se inventário foi alterado (criado/atualizado/excluído)
 
   @override
   void initState() {
@@ -41,9 +39,9 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   }
 
   void _showSnack(String msg, {Color color = Colors.black87}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
   Future<void> _load() async {
@@ -54,12 +52,10 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
 
     try {
       final session = context.read<AuthProvider>().sessionToken!;
-      // Detalhes da impressora
       final map = await _service.getPrinterDetails(
         sessionToken: session,
         id: widget.id,
       );
-      // Inventário do ano atual (se existir)
       final inv = await _service.getCurrentYearInventoryInfo(
         type: 'Printer',
         id: widget.id,
@@ -81,8 +77,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
     }
   }
 
-  /// Abre o bottom sheet para escolher o usuário e registrar/atualizar inventário
-  Future<void> _handleInventory() async {
+  Future<void> _openInventorySheet() async {
     final session = context.read<AuthProvider>().sessionToken!;
 
     showModalBottomSheet(
@@ -95,7 +90,6 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
       builder: (_) => InventoryActionSheet(
         sessionToken: session,
         onConfirm: (userName) async {
-          setState(() => _busyInventory = true);
           try {
             await _service.createOrUpdateInventory(
               type: 'Printer',
@@ -103,23 +97,19 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
               sessionToken: session,
               userName: userName,
             );
-
             if (!mounted) return;
-
+            _changed = true;
             _showSnack(
-              'Inventário criado/atualizado com sucesso.',
+              'Inventário registrado com sucesso.',
               color: Colors.green.shade600,
             );
-
-            await _load(); // recarrega Nome / DataHora / Ano
+            await _load();
           } catch (e) {
             if (!mounted) return;
             _showSnack(
               'Erro ao registrar inventário: $e',
               color: Colors.red.shade600,
             );
-          } finally {
-            if (mounted) setState(() => _busyInventory = false);
           }
         },
       ),
@@ -127,52 +117,63 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   }
 
   Future<void> _deleteInventory() async {
-    setState(() => _busyInventory = true);
-    try {
-      // Verifica se há inventário carregado
-      if (_inv == null) {
-        if (!mounted) return;
-        await showDialog<void>(
-          context: context,
-          builder: (_) => const AlertDialog(
-            title: Text('Inventário'),
-            content: Text(
-              'Não há inventário para o ano atual para excluir.',
-            ),
-          ),
-        );
-        return;
-      }
+    final session = context.read<AuthProvider>().sessionToken!;
+    final year = DateTime.now().year.toString();
 
-      final ano = _inv?['ano'] ?? DateTime.now().year.toString();
+    // Garante que ainda existe inventário para o ano atual
+    final inv = await _service.getCurrentYearInventoryInfo(
+      type: 'Printer',
+      id: widget.id,
+      sessionToken: session,
+    );
 
-      // Confirmação do usuário
-      final confirm = await showDialog<bool>(
+    if (inv == null) {
+      if (!mounted) return;
+      await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Excluir inventário'),
-          content: Text(
-            'Tem certeza que deseja excluir o inventário do ano $ano?',
+          title: const Text('Inventário'),
+          content: const Text(
+            'Não há inventário para o ano atual para excluir.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                'Excluir',
-                style: TextStyle(color: Colors.red),
-              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
             ),
           ],
         ),
       );
+      return;
+    }
 
-      if (confirm != true) return;
+    // Confirmação
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Excluir inventário'),
+        content: Text(
+          'Tem certeza que deseja excluir o inventário do ano ${inv['ano'] ?? year}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Excluir',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
 
-      final session = context.read<AuthProvider>().sessionToken!;
+    if (confirm != true) return;
+
+    try {
       await _service.deleteCurrentYearInventory(
         type: 'Printer',
         id: widget.id,
@@ -180,6 +181,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
       );
 
       if (!mounted) return;
+      _changed = true;
       setState(() {
         _inv = null;
       });
@@ -189,12 +191,11 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
         color: Colors.green.shade600,
       );
     } catch (e) {
+      if (!mounted) return;
       _showSnack(
         'Erro ao excluir inventário: $e',
         color: Colors.red.shade600,
       );
-    } finally {
-      if (mounted) setState(() => _busyInventory = false);
     }
   }
 
@@ -202,51 +203,59 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
   Widget build(BuildContext context) {
     const purple = Color(0xFF522583);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalhes - Impressora'),
-        backgroundColor: Colors.white,
-        foregroundColor: purple,
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(_changed);
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Detalhes - Impressora'),
+          backgroundColor: Colors.white,
+          foregroundColor: purple,
+          actions: [
+            IconButton(
+              tooltip: 'Excluir inventário (ano atual)',
+              onPressed: _deleteInventory,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(child: Text('Erro: $_error'))
+                : _data == null
+                    ? const Center(child: Text('Dados não encontrados.'))
+                    : ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          _header(_data!['Nome'] ?? '(Sem nome)'),
+                          const SizedBox(height: 12),
+                          _kvCard(_data!),
+                          const SizedBox(height: 16),
+                          _inventorySection(),
+                          const SizedBox(height: 16),
+                          _actionsRow(context),
+                        ],
+                      ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text('Erro: $_error'))
-              : _data == null
-                  ? const Center(child: Text('Dados não encontrados.'))
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        _header(_data!['Nome'] ?? '(Sem nome)'),
-                        const SizedBox(height: 12),
-                        _kvCard(_data!),
-                        const SizedBox(height: 16),
-                        _inventorySection(),
-                        const SizedBox(height: 16),
-                        _actionsRow(context),
-                      ],
-                    ),
     );
   }
 
   Widget _header(String title) => Row(
         children: [
           CircleAvatar(
-            backgroundColor:
-                const Color(0xFF522583).withOpacity(0.1),
-            child: const Icon(
-              Icons.print_rounded,
-              color: Color(0xFF522583),
-            ),
+            backgroundColor: const Color(0xFF522583).withOpacity(0.1),
+            child:
+                const Icon(Icons.print_rounded, color: Color(0xFF522583)),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style:
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -254,8 +263,12 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
       );
 
   Widget _kvCard(Map<String, String> map) {
-    final entries =
-        map.entries.where((e) => e.value.trim().isNotEmpty).toList();
+    final entries = map.entries
+        .where(
+          (e) =>
+              e.key != 'Observações' && e.value.trim().isNotEmpty,
+        )
+        .toList();
 
     final order = <String>[
       'Nome',
@@ -328,10 +341,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
           children: [
             const Text(
               'Inventário',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             if (_inv == null)
@@ -349,7 +359,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _busyInventory ? null : _handleInventory,
+                    onPressed: _openInventorySheet,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: purple,
                       foregroundColor: Colors.white,
@@ -364,8 +374,7 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  onPressed:
-                      _busyInventory || _inv == null ? null : _deleteInventory,
+                  onPressed: _inv == null ? null : _deleteInventory,
                   icon: const Icon(
                     Icons.delete_forever_rounded,
                     color: Colors.red,
@@ -403,10 +412,19 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
               );
             },
             icon: const Icon(Icons.description_outlined),
-            label: const Text('Documentos'),
+            label: const Text(
+              'Documentos',
+              softWrap: false,
+              overflow: TextOverflow.fade,
+            ),
             style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               side: const BorderSide(color: purple),
               foregroundColor: purple,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),
@@ -428,10 +446,19 @@ class _DetailsPrinterPageState extends State<DetailsPrinterPage> {
               );
             },
             icon: const Icon(Icons.report_problem_outlined),
-            label: const Text('Problemas'),
+            label: const Text(
+              'Problemas',
+              softWrap: false,
+              overflow: TextOverflow.fade,
+            ),
             style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               side: const BorderSide(color: purple),
               foregroundColor: purple,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),

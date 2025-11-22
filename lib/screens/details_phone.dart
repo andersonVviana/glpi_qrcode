@@ -22,6 +22,8 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
   bool _loading = true;
   String? _error;
 
+  bool _changed = false; // 👈 se inventário foi alterado (criado/atualizado/excluído)
+
   @override
   void initState() {
     super.initState();
@@ -92,14 +94,22 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
               userName: userName,
             );
             if (!mounted) return;
-            _showSnack(
-              'Inventário criado/atualizado com sucesso.',
-              color: Colors.green.shade600,
+            _changed = true; // 👈 houve alteração
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Inventário Criado'),
+                backgroundColor: Colors.green.shade600,
+              ),
             );
             await _load(); // recarrega para mostrar Nome / DataHora
           } catch (e) {
             if (!mounted) return;
-            _showSnack('Erro: $e', color: Colors.red.shade600);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erro: $e'),
+                backgroundColor: Colors.red.shade600,
+              ),
+            );
           }
         },
       ),
@@ -107,8 +117,18 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
   }
 
   Future<void> _deleteInventory() async {
-    // Se não há inventário, já avisa
-    if (_inv == null) {
+    final session = context.read<AuthProvider>().sessionToken!;
+    final year = DateTime.now().year.toString();
+
+    // Verifica se existe inventário
+    final inv = await _service.getCurrentYearInventoryInfo(
+      type: 'Phone',
+      id: widget.id,
+      sessionToken: session,
+    );
+
+    if (inv == null) {
+      if (!mounted) return;
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
@@ -127,15 +147,13 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
       return;
     }
 
-    final ano = _inv?['ano'] ?? DateTime.now().year.toString();
-
-    // Confirmação com o usuário
+    // Confirmação
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Excluir inventário'),
         content: Text(
-          'Tem certeza que deseja excluir o inventário do ano $ano?',
+          'Tem certeza que deseja excluir o inventário do ano ${inv['ano'] ?? year}?',
         ),
         actions: [
           TextButton(
@@ -144,7 +162,10 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Excluir', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Excluir',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -153,13 +174,13 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
     if (confirm != true) return;
 
     try {
-      final session = context.read<AuthProvider>().sessionToken!;
       await _service.deleteCurrentYearInventory(
         type: 'Phone',
         id: widget.id,
         sessionToken: session,
       );
       if (!mounted) return;
+      _changed = true; // 👈 houve alteração
       setState(() {
         _inv = null;
       });
@@ -182,111 +203,145 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
         ? _data!['Serial']!
         : (_data?['IMEI'] ?? '');
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalhes - Telefone'),
-        backgroundColor: Colors.white,
-        foregroundColor: purple,
-        actions: [
-          IconButton(
-            tooltip: 'Excluir inventário (ano atual)',
-            onPressed: _deleteInventory,
-            icon: const Icon(Icons.delete_outline),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text('Erro: $_error'),
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _header(hostname),
-                const SizedBox(height: 12),
-                _kvCard(_data!),
-                const SizedBox(height: 16),
-                _inventorySection(),
-                const SizedBox(height: 16),
-
-                // ===== Botões lado a lado: Documentos | Problemas =====
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          final hostname = _data?['Nome'] ?? '(Sem nome)';
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DocumentsPage(
-                                type: 'Phone',
-                                id: widget.id,
-                                hostname: hostname,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.folder_open),
-                        label: const Text(
-                          'Documentos',
-                          softWrap: false,
-                          overflow: TextOverflow.fade,
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          side: const BorderSide(color: purple),
-                          foregroundColor: purple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ProblemsPage(
-                                type: 'Phone',
-                                id: widget.id,
-                                hostname: hostname,
-                                tipoComputador: modelo,
-                                serial: serial,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.warning_amber_outlined),
-                        label: const Text(
-                          'Problemas',
-                          softWrap: false,
-                          overflow: TextOverflow.fade,
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          side: const BorderSide(color: purple),
-                          foregroundColor: purple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(_changed);
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Detalhes - Telefone'),
+          backgroundColor: Colors.white,
+          foregroundColor: purple,
+          actions: [
+            IconButton(
+              tooltip: 'Excluir inventário (ano atual)',
+              onPressed: _deleteInventory,
+              icon: const Icon(Icons.delete_outline),
             ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text('Erro: $_error'),
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      _header(hostname),
+                      const SizedBox(height: 12),
+                      if (_data != null) _kvCard(_data!),
+                      const SizedBox(height: 16),
+                      _inventorySection(),
+                      const SizedBox(height: 16),
+
+                      // ===== Botões lado a lado: Inventário | Documentos | Problemas =====
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _openInventorySheet,
+                              icon: const Icon(Icons.inventory_2_outlined),
+                              label: const Text(
+                                'Inventário',
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: purple,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                final hostname =
+                                    _data?['Nome'] ?? '(Sem nome)';
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => DocumentsPage(
+                                      type: 'Phone',
+                                      id: widget.id,
+                                      hostname: hostname,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text(
+                                'Documentos',
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                side: const BorderSide(color: purple),
+                                foregroundColor: purple,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ProblemsPage(
+                                      type: 'Phone',
+                                      id: widget.id,
+                                      hostname: hostname,
+                                      tipoComputador: modelo,
+                                      serial: serial,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.warning_amber_outlined),
+                              label: const Text(
+                                'Problemas',
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                side: const BorderSide(color: purple),
+                                foregroundColor: purple,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+      ),
     );
   }
 
@@ -313,7 +368,10 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
 
   Widget _kvCard(Map<String, String> map) {
     final entries = map.entries
-        .where((e) => e.value.trim().isNotEmpty)
+        .where(
+          (e) =>
+              e.key != 'Observações' && e.value.trim().isNotEmpty,
+        )
         .toList();
 
     final order = <String>[
@@ -327,12 +385,12 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
       'Sistema Oper.',
       'Usuário',
       'Localização',
-      'Observações',
       'Criado em',
       'Atualizado em',
       'ID',
       'Tipo',
     ];
+
     entries.sort((a, b) {
       final ia = order.indexOf(a.key);
       final ib = order.indexOf(b.key);
@@ -424,7 +482,7 @@ class _DetailsPhonePageState extends State<DetailsPhonePage> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  onPressed: _deleteInventory,
+                  onPressed: _inv == null ? null : _deleteInventory,
                   icon: const Icon(
                     Icons.delete_forever_rounded,
                     color: Colors.red,
